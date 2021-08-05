@@ -1,2 +1,2 @@
 # Basic SSH honeypot with downloader
-A basic SSH honeypot with downloader. Made with Python; containserised in Docker
+Following on from [Part 1](https://github.com/sjbell/basic_ssh_honeypot) this repo extends the basic SSH honeypot with a downloaderer. Made with Python; containserised in Docker
