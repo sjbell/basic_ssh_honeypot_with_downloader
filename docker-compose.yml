@@ -15,7 +15,7 @@ services:
         env_file:
             - ./.env
         ports:
-            - 2224:2222
+            - 22:2222
         environment:
             - CHOKIDAR_USEPOLLING=true
             
