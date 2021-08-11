@@ -58,6 +58,18 @@ def handle_cmd(cmd, chan, ip):
         response = "users.txt"
     elif cmd.startswith("pwd"):
         response = "/home/root"
+    elif cmd.startswith("cat /proc/cpuinfo | grep name | wc -l"):
+        response = "2"
+    elif cmd.startswith("uname -a"):
+        response = "Linux server 4.15.0-147-generic #151-Ubuntu SMP Fri Jun 18 19:21:19 UTC 2021 x86_64 x86_64 x86_64 GNU/Linux"
+    elif cmd.startswith("cat /proc/cpuinfo | grep name | head -n 1 | awk '{print $4,$5,$6,$7,$8,$9;}'"):
+        response = "Intel(R) Xeon(R) CPU E5-2680 v3 @"
+    elif cmd.startswith("free -m | grep Mem | awk '{print $2 ,$3, $4, $5, $6, $7}'"):
+        response = "7976 5167 199 1 2609 2519"
+    elif cmd.startswith("ls -lh $(which ls)"):
+        response = "-rwxr-xr-x 1 root root 131K Jan 18  2018 /bin/ls"
+    elif cmd.startswith("crontab -l "):
+        response = "no crontab for root"
 
     if response != '':
         logging.info('Response from honeypot ({}): '.format(ip, response))
@@ -107,8 +119,9 @@ class BasicSshHoneypot(paramiko.ServerInterface):
         command_text = str(command.decode("utf-8"))
         handle_cmd(command_text, channel, self.client_ip)
         logging.info('client sent command via check_channel_exec_request ({}): {}'.format(
-                    self.client_ip, username, command))
+                    self.client_ip, command, channel))
         return True
+
 
 
 def handle_connection(client, addr):
@@ -176,7 +189,7 @@ def handle_connection(client, addr):
                 
                 chan.send("\r\n")
                 command = command.rstrip()
-                logging.info('Command receied ({}): {}'.format(client_ip, command))
+                logging.info('Command received ({}): {}'.format(client_ip, command))
 
                 if command == "exit":
                     logging.info('Connection closed (via exit command): {}'.format(client_ip))
