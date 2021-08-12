@@ -9,7 +9,7 @@ services:
           dockerfile: Dockerfile
         image: basic_ssh_honeypot
         tty: true  
-        command: python ssh_honeypot.py --port 2222
+        command: python ssh_honeypot.py --bind 0.0.0.0 --port 2222
         volumes:
             - .:/usr/src/app
         env_file:
@@ -26,13 +26,15 @@ services:
           dockerfile: Dockerfile
         image: ssh_honeypot_downloader
         tty: true  
-        command: python ssh_honeypot_downloader.py
         volumes:
             - .:/usr/src/app
         env_file:
             - ./.env
         environment:
             - CHOKIDAR_USEPOLLING=true
+        depends_on:
+            - "ssh_honeypot_redis_db"
+        command: ["./wait-for-it.sh", "ssh_honeypot_redis_db:6379", "--", "python", "ssh_honeypot_downloader.py"]
             
     ssh_honeypot_redis_db:
         container_name: ssh_honeypot_redis_db
