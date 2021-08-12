@@ -39,7 +39,7 @@ def detect_url(command, client_ip):
         for ar in result:
             for url in ar:
                 if url != '':
-                    logging.info('New URL detected ({}): '.format(client_ip, url))
+                    logging.info('New URL detected ({}): {}'.format(client_ip, url))
                     r.lpush("download_queue", url)
 
     ip_regex = r"([0-9]+(?:\.[0-9]+){3}\/\S*)"
@@ -47,13 +47,14 @@ def detect_url(command, client_ip):
     if ip_result:
         for ip_url in ip_result:
             if ip_url != '':
-                logging.info('New IP-based URL detected ({}): '.format(client_ip, ip_url))
+                logging.info('New IP-based URL detected ({}): {}'.format(client_ip, ip_url))
                 r.lpush("download_queue", ip_url)
 
 def handle_cmd(cmd, chan, ip):
 
     detect_url(cmd, ip)
     response = ""
+
     if cmd.startswith("ls"):
         response = "users.txt"
     elif cmd.startswith("pwd"):
@@ -119,13 +120,11 @@ class BasicSshHoneypot(paramiko.ServerInterface):
         command_text = str(command.decode("utf-8"))
         handle_cmd(command_text, channel, self.client_ip)
         logging.info('client sent command via check_channel_exec_request ({}): {}'.format(
-                    self.client_ip, command, channel))
+                    self.client_ip, command))
         return True
 
 
-
 def handle_connection(client, addr):
-
     client_ip = addr[0]
     logging.info('New connection from: {}'.format(client_ip))
     print('New connection from: {}'.format(client_ip))
