@@ -24,4 +24,4 @@ docker-compose build
 ```
 docker-compose up
 ```
-Logs are recorded in the auto-generated ```ssh_honeypot.log``` file
+Logs are recorded in the auto-generated ```ssh_honeypot.log``` and ```ssh_honeypot_downloader.log``` files

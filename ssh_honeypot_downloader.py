@@ -31,7 +31,7 @@ def downloadURL(url):
 
         a = urlparse(url)
         file_name = os.path.basename(a.path)
-        logging.info('Downloading URL: '.format(url))
+        logging.info('Downloading URL: {}'.format(url))
         m_sha256 = hashlib.sha256()
         file_digest = ''
         chunks = []
