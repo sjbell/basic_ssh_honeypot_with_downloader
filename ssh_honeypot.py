@@ -1,21 +1,20 @@
 #!/usr/bin/env python
 import argparse
-import threading
+import logging
+import os
+import re
 import socket
 import sys
-import os
+import threading
 import traceback
-import re
-import logging
+from binascii import hexlify
+
 import paramiko
 import redis
-from datetime import datetime
-from binascii import hexlify
-from paramiko.py3compat import b, u, decodebytes
 
-REDIS_HOST=os.environ.get("REDIS_HOST")
-REDIS_PORT=os.environ.get("REDIS_PORT")
-REDIS_PASSWORD=os.environ.get("REDIS_PASSWORD")
+REDIS_HOST = os.environ.get("REDIS_HOST")
+REDIS_PORT = os.environ.get("REDIS_PORT")
+REDIS_PASSWORD = os.environ.get("REDIS_PASSWORD")
 r = redis.StrictRedis(host=REDIS_HOST, port=REDIS_PORT, password=REDIS_PASSWORD, decode_responses=True)
 
 HOST_KEY = paramiko.RSAKey(filename='server.key')
@@ -32,8 +31,18 @@ logging.basicConfig(
     level=logging.INFO,
     filename='ssh_honeypot.log')
 
+
+def decode_bytes(s, encoding='utf8'):
+    if isinstance(s, str):
+        return s
+    elif isinstance(s, bytes):
+        return s.decode(encoding)
+    raise TypeError("{!r} is not unicode or byte".format(s))
+
+
 def detect_url(command, client_ip):
-    regex = r"(?i)\b((?:https?://|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s()<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'\".,<>?«»“”‘’]))"
+    regex = (r"(?i)\b((?:https?://|www\d{0,3}[.]|[a-z0-9.\-]+[.][a-z]{2,4}/)(?:[^\s()<>]+|\(([^\s()<>]+|(\([^\s("
+             r")<>]+\)))*\))+(?:\(([^\s()<>]+|(\([^\s()<>]+\)))*\)|[^\s`!()\[\]{};:'\".,<>?«»“”‘’]))")
     result = re.findall(regex, command)
     if result:
         for ar in result:
@@ -50,8 +59,8 @@ def detect_url(command, client_ip):
                 logging.info('New IP-based URL detected ({}): '.format(client_ip, ip_url))
                 r.lpush("download_queue", ip_url)
 
-def handle_cmd(cmd, chan, ip):
 
+def handle_cmd(cmd, chan, ip):
     detect_url(cmd, ip)
     response = ""
     if cmd.startswith("ls"):
@@ -61,7 +70,8 @@ def handle_cmd(cmd, chan, ip):
     elif cmd.startswith("cat /proc/cpuinfo | grep name | wc -l"):
         response = "2"
     elif cmd.startswith("uname -a"):
-        response = "Linux server 4.15.0-147-generic #151-Ubuntu SMP Fri Jun 18 19:21:19 UTC 2021 x86_64 x86_64 x86_64 GNU/Linux"
+        response = ("Linux server 4.15.0-147-generic #151-Ubuntu SMP Fri Jun 18 19:21:19 UTC 2021 x86_64 x86_64 x86_64 "
+                    "GNU/Linux")
     elif cmd.startswith("cat /proc/cpuinfo | grep name | head -n 1 | awk '{print $4,$5,$6,$7,$8,$9;}'"):
         response = "Intel(R) Xeon(R) CPU E5-2680 v3 @"
     elif cmd.startswith("free -m | grep Mem | awk '{print $2 ,$3, $4, $5, $6, $7}'"):
@@ -70,6 +80,8 @@ def handle_cmd(cmd, chan, ip):
         response = "-rwxr-xr-x 1 root root 131K Jan 18  2018 /bin/ls"
     elif cmd.startswith("crontab -l "):
         response = "no crontab for root"
+    else:
+        response = f"{cmd}: command not found"
 
     if response != '':
         logging.info('Response from honeypot ({}): '.format(ip, response))
@@ -78,7 +90,6 @@ def handle_cmd(cmd, chan, ip):
 
 
 class BasicSshHoneypot(paramiko.ServerInterface):
-
     client_ip = None
 
     def __init__(self, client_ip):
@@ -87,25 +98,26 @@ class BasicSshHoneypot(paramiko.ServerInterface):
 
     def check_channel_request(self, kind, chanid):
         logging.info('client called check_channel_request ({}): {}'.format(
-                    self.client_ip, kind))
+            self.client_ip, kind))
         if kind == 'session':
             return paramiko.OPEN_SUCCEEDED
 
     def get_allowed_auths(self, username):
         logging.info('client called get_allowed_auths ({}) with username {}'.format(
-                    self.client_ip, username))
+            self.client_ip, username))
         return "publickey,password"
 
     def check_auth_publickey(self, username, key):
-        fingerprint = u(hexlify(key.get_fingerprint()))
-        logging.info('client public key ({}): username: {}, key name: {}, md5 fingerprint: {}, base64: {}, bits: {}'.format(
-                    self.client_ip, username, key.get_name(), fingerprint, key.get_base64(), key.get_bits()))
-        return paramiko.AUTH_PARTIALLY_SUCCESSFUL        
+        fingerprint = decode_bytes(hexlify(key.get_fingerprint()))
+        logging.info(
+            'client public key ({}): username: {}, key name: {}, md5 fingerprint: {}, base64: {}, bits: {}'.format(
+                self.client_ip, username, key.get_name(), fingerprint, key.get_base64(), key.get_bits()))
+        return paramiko.AUTH_PARTIALLY_SUCCESSFUL
 
     def check_auth_password(self, username, password):
         # Accept all passwords as valid by default
         logging.info('new client credentials ({}): username: {}, password: {}'.format(
-                    self.client_ip, username, password))
+            self.client_ip, username, password))
         return paramiko.AUTH_SUCCESSFUL
 
     def check_channel_shell_request(self, channel):
@@ -119,13 +131,11 @@ class BasicSshHoneypot(paramiko.ServerInterface):
         command_text = str(command.decode("utf-8"))
         handle_cmd(command_text, channel, self.client_ip)
         logging.info('client sent command via check_channel_exec_request ({}): {}'.format(
-                    self.client_ip, command, channel))
+            self.client_ip, command, channel))
         return True
 
 
-
 def handle_connection(client, addr):
-
     client_ip = addr[0]
     logging.info('New connection from: {}'.format(client_ip))
     print('New connection from: {}'.format(client_ip))
@@ -133,7 +143,7 @@ def handle_connection(client, addr):
     try:
         transport = paramiko.Transport(client)
         transport.add_server_key(HOST_KEY)
-        transport.local_version = SSH_BANNER # Change banner to appear more convincing
+        transport.local_version = SSH_BANNER  # Change banner to appear more convincing
         server = BasicSshHoneypot(client_ip)
         try:
             transport.start_server(server=server)
@@ -145,9 +155,9 @@ def handle_connection(client, addr):
         # wait for auth
         chan = transport.accept(10)
         if chan is None:
-            print('*** No channel (from '+client_ip+').')
+            print('*** No channel (from ' + client_ip + ').')
             raise Exception("No channel")
-        
+
         chan.settimeout(10)
 
         if transport.remote_mac != '':
@@ -158,7 +168,7 @@ def handle_connection(client, addr):
 
         if transport.remote_version != '':
             logging.info('Client SSH version ({}): {}'.format(client_ip, transport.remote_version))
-            
+
         if transport.remote_cipher != '':
             logging.info('Client SSH cipher ({}): {}'.format(client_ip, transport.remote_cipher))
 
@@ -166,7 +176,7 @@ def handle_connection(client, addr):
         if not server.event.is_set():
             logging.info('** Client ({}): never asked for a shell'.format(client_ip))
             raise Exception("No shell request")
-     
+
         try:
             chan.send("Welcome to Ubuntu 18.04.4 LTS (GNU/Linux 4.15.0-128-generic x86_64)\r\n\r\n")
             run = True
@@ -175,18 +185,18 @@ def handle_connection(client, addr):
                 command = ""
                 while not command.endswith("\r"):
                     transport = chan.recv(1024)
-                    print(client_ip+"- received:",transport)
+                    print(client_ip + "- received:", transport)
                     # Echo input to psuedo-simulate a basic terminal
-                    if(
-                        transport != UP_KEY
-                        and transport != DOWN_KEY
-                        and transport != LEFT_KEY
-                        and transport != RIGHT_KEY
-                        and transport != BACK_KEY
+                    if (
+                            transport != UP_KEY
+                            and transport != DOWN_KEY
+                            and transport != LEFT_KEY
+                            and transport != RIGHT_KEY
+                            and transport != BACK_KEY
                     ):
                         chan.send(transport)
                         command += transport.decode("utf-8")
-                
+
                 chan.send("\r\n")
                 command = command.rstrip()
                 logging.info('Command received ({}): {}'.format(client_ip, command))
@@ -226,7 +236,6 @@ def start_server(port, bind):
         traceback.print_exc()
         sys.exit(1)
 
-    threads = []
     while True:
         try:
             sock.listen(100)
@@ -237,16 +246,13 @@ def start_server(port, bind):
             traceback.print_exc()
         new_thread = threading.Thread(target=handle_connection, args=(client, addr))
         new_thread.start()
-        threads.append(new_thread)
-
-    for thread in threads:
-        thread.join()
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description='Run an SSH honeypot server')
-    parser.add_argument("--port", "-p", help="The port to bind the ssh server to (default 22)", default=2222, type=int, action="store")
-    parser.add_argument("--bind", "-b", help="The address to bind the ssh server to", default="", type=str, action="store")
+    parser.add_argument("--port", "-p", help="The port to bind the ssh server to (default 22)", default=2222, type=int,
+                        action="store")
+    parser.add_argument("--bind", "-b", help="The address to bind the ssh server to", default="", type=str,
+                        action="store")
     args = parser.parse_args()
     start_server(args.port, args.bind)
-

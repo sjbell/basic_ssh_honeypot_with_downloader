@@ -1,0 +1,6 @@
+server.key
+server.key.pub
+ssh_honeypot.log
+ssh_honeypot_downloader.log
+.idea/
+uploaded_files/**
